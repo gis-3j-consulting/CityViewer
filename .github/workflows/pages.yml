@@ -1,0 +1,52 @@
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  schedule:
+    - cron: '0 9 1 * *'
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # Fetch fresh Census data. Your uploaded city_limits.geojson is backed up and
+      # put back afterwards so it is never replaced.
+      - name: Refresh data snapshots
+        env:
+          CENSUS_KEY: ${{ secrets.CENSUS_KEY }}
+        run: |
+          cp data/city_limits.geojson /tmp/city_limits.geojson 2>/dev/null || true
+          node scripts/build-data.mjs || true
+          if [ -f /tmp/city_limits.geojson ]; then cp /tmp/city_limits.geojson data/city_limits.geojson; fi
+
+      - name: Assemble site
+        run: |
+          mkdir _site
+          cp -r index.html css js img data .nojekyll _site/
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
