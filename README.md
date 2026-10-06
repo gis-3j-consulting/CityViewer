@@ -28,13 +28,35 @@ Optional: add a repository secret called `CENSUS_KEY` (free key from api.census.
 |---|---|---|
 | City boundaries | State of Oregon / ODOT *City Limits* layer | `data/city_limits.geojson` if present, otherwise queried live from the ArcGIS REST service |
 | Income, rent, home value, tenure, housing age and types, age, rent burden | Census ACS 5-year (2020–2024), places in Oregon | `data/acs_places.json` if present, otherwise the Census API |
-| Official population and population change | Portland State University Population Research Center | `data/psu_population.csv`, which you add (see `data/README.md`) |
+| Official population and population change | Portland State University Population Research Center, certified estimates (Vintage 2025) | `data/psu_population.csv`, included; refresh with `scripts/psu_xlsx_to_csv.py` (see `data/README.md`) |
 
-Without the PSU file the app still works: population comes from the ACS estimate and the "Population change" layer
+Without the PSU file the app would still work: population comes from the ACS estimate and the "Population change" layer
 and trend chart are switched off.
 
 Density is population divided by square miles inside city limits. "Similar cities" uses nearest neighbors on
 population, income, rent burden, homeownership, median age, older homes and multifamily share.
+
+## If the map says the data didn't load
+
+"Failed to fetch" means the browser couldn't reach the State's live city limits service (blocked, offline, or the
+server doesn't allow requests from web pages). Skip the live service by saving a copy in the repo:
+
+1. Open https://geohub.oregon.gov/datasets/oregon-geo::city-limits, click **Download**, choose **GeoJSON**.
+2. Save it as `data/city_limits.geojson` in the repo. GitHub's web upload accepts files up to 25 MB.
+   If the file is bigger, open it at https://mapshaper.org, click **Simplify** (keep roughly 10 to 20 percent),
+   then **Export → GeoJSON**.
+3. Commit. The site redeploys and uses the saved copy.
+
+The file needs a city name column (`CITY_NAME` is expected; other obvious names are detected) and ideally `acres`.
+Another option for a GIS team: publish the layer as a public hosted feature layer on ArcGIS Online and point
+`cityLimits.queryUrl` in `js/config.js` at its `/query` URL. Those services allow web page requests.
+
+## If the map loads but no cities are drawn
+
+The app checks itself: if boundaries loaded but none render, a yellow banner appears. Open **Data and sources →
+Map diagnostics** to see the file's coordinate system, its extent (it should fall inside Oregon), which layers were
+added and any messages from the map library. Files in Oregon Lambert feet (EPSG:2992) or Web Mercator are converted
+automatically; anything else needs re-exporting as lon/lat GeoJSON (WGS84).
 
 ## Important: Census snapshot before the conference
 
@@ -54,6 +76,7 @@ js/stats.js           metrics, rankings, similar-city matching, quick facts
 js/charts.js          small SVG/HTML charts
 js/main.js            map, search, panel
 scripts/build-data.mjs  saves data snapshots   |   scripts/test.mjs  offline tests (npm test)
+scripts/psu_xlsx_to_csv.py  converts PSU's workbook to data/psu_population.csv
 ```
 
 ## When names don't match

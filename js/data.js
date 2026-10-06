@@ -121,9 +121,18 @@ async function loadCityLimits(status) {
     status.cityLimits = { source: 'snapshot in repo', file: CONFIG.local.cityLimits };
     return local;
   }
-  const live = await fetchCityLimitsLive();
-  status.cityLimits = { source: 'live ArcGIS service', url: CONFIG.cityLimits.queryUrl };
-  return live;
+  try {
+    const live = await fetchCityLimitsLive();
+    status.cityLimits = { source: 'live ArcGIS service', url: CONFIG.cityLimits.queryUrl };
+    return live;
+  } catch (e) {
+    const err = new Error(
+      `No saved copy of the city limits was found at ${CONFIG.local.cityLimits}, and the live State of Oregon service could not be reached (${e.message}).`
+    );
+    err.cause = e;
+    err.code = 'CITY_LIMITS';
+    throw err;
+  }
 }
 
 /* -------------------------------------------------------------------- ACS */
@@ -475,10 +484,97 @@ function labelPoint(features) {
   return inRing(mid, best) ? mid : best[0];
 }
 
+/* ------------------------------------------------- coordinate systems */
+
+// Downloaded GeoJSON is normally lon/lat, but exports from some tools keep the source projection.
+// MapLibre only draws lon/lat, so detect the two likely alternatives and convert them.
+
+const R2D = 180 / Math.PI;
+const D2R = Math.PI / 180;
+
+function mercatorInverse(x, y) {
+  const lon = (x / 6378137) * R2D;
+  const lat = (2 * Math.atan(Math.exp(y / 6378137)) - Math.PI / 2) * R2D;
+  return [lon, lat];
+}
+
+// EPSG:2992 NAD83 / Oregon GIC Lambert (international feet): Lambert Conformal Conic, 2 standard parallels
+const LCC = (() => {
+  const a = 6378137, f = 1 / 298.257222101, e2 = 2 * f - f * f, e = Math.sqrt(e2);
+  const phi1 = 43 * D2R, phi2 = 45.5 * D2R, phi0 = 41.75 * D2R, lam0 = -120.5 * D2R;
+  const m = (p) => Math.cos(p) / Math.sqrt(1 - e2 * Math.sin(p) ** 2);
+  const tt = (p) => Math.tan(Math.PI / 4 - p / 2) / ((1 - e * Math.sin(p)) / (1 + e * Math.sin(p))) ** (e / 2);
+  const n = (Math.log(m(phi1)) - Math.log(m(phi2))) / (Math.log(tt(phi1)) - Math.log(tt(phi2)));
+  const F = m(phi1) / (n * tt(phi1) ** n);
+  const rho0 = a * F * tt(phi0) ** n;
+  const FE = 400000; // metres
+  const FT = 0.3048;
+  return {
+    inverse(xFt, yFt) {
+      const x = xFt * FT - FE;
+      const y = rho0 - yFt * FT;
+      const rho = Math.sign(n) * Math.hypot(x, y);
+      const t = (rho / (a * F)) ** (1 / n);
+      const theta = Math.atan2(Math.sign(n) * x, Math.sign(n) * y);
+      let phi = Math.PI / 2 - 2 * Math.atan(t);
+      for (let i = 0; i < 8; i++) {
+        phi = Math.PI / 2 - 2 * Math.atan(t * ((1 - e * Math.sin(phi)) / (1 + e * Math.sin(phi))) ** (e / 2));
+      }
+      return [(theta / n + lam0) * R2D, phi * R2D];
+    },
+  };
+})();
+
+function firstCoord(geom) {
+  let c = geom?.coordinates;
+  while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+  return Array.isArray(c) ? c : null;
+}
+
+function mapCoords(c, fn) {
+  return typeof c[0] === 'number' ? fn(c) : c.map((x) => mapCoords(x, fn));
+}
+
+// Returns { geojson, crs } where crs describes what was found ('EPSG:4326' means nothing was changed).
+export function ensureWgs84(geojson) {
+  const sample = geojson.features.map((f) => firstCoord(f.geometry)).find(Boolean);
+  if (!sample) return { geojson, crs: 'unknown (no coordinates)' };
+  const [x, y] = sample;
+  if (Math.abs(x) <= 180 && Math.abs(y) <= 90) return { geojson, crs: 'EPSG:4326' };
+
+  let fn, crs;
+  if (Math.abs(x) > 5e6) { fn = ([px, py]) => mercatorInverse(px, py); crs = 'EPSG:3857 (converted)'; }
+  else if (x > 1e5 && x < 3e6 && y > 0 && y < 2.5e6) { fn = ([px, py]) => LCC.inverse(px, py); crs = 'EPSG:2992 Oregon Lambert (converted)'; }
+  else throw new Error(`The city limits file uses a coordinate system the app doesn't recognise (first point ${x}, ${y}). Re-export it as GeoJSON in WGS84 (lon/lat).`);
+
+  return {
+    crs,
+    geojson: {
+      ...geojson,
+      features: geojson.features.map((f) => (f.geometry ? { ...f, geometry: { ...f.geometry, coordinates: mapCoords(f.geometry.coordinates, fn) } } : f)),
+    },
+  };
+}
+
 /* ------------------------------------------------------------------- join */
 
-export function buildCities({ geojson, acs, psu, status = {} }) {
-  const { nameField, acresField } = CONFIG.cityLimits;
+// Use the configured name field; if a downloaded file calls it something else, find the likeliest one.
+function detectField(features, wanted, patterns) {
+  const props = features.find((f) => f.properties)?.properties || {};
+  if (wanted in props) return wanted;
+  const keys = Object.keys(props);
+  for (const re of patterns) {
+    const hit = keys.find((k) => re.test(k));
+    if (hit) return hit;
+  }
+  return wanted;
+}
+
+export function buildCities({ geojson: rawGeojson, acs, psu, status = {} }) {
+  const { geojson, crs } = ensureWgs84(rawGeojson);
+  status.crs = crs;
+  const nameField = detectField(geojson.features, CONFIG.cityLimits.nameField, [/^city_?name$/i, /^city$/i, /^name$/i, /city/i]);
+  const acresField = detectField(geojson.features, CONFIG.cityLimits.acresField, [/^acres$/i, /acre/i]);
 
   // 1. one record per city (cities can have several non-contiguous polygons)
   const groups = new Map();
@@ -578,7 +674,10 @@ export function buildCities({ geojson, acs, psu, status = {} }) {
   const unmatchedPsu = [];
   if (psu) for (const k of psu.series.keys()) if (!usedPsu.has(k)) unmatchedPsu.push(k);
 
+  const allBbox = bboxOf(polyFeatures);
   status.summary = {
+    bbox: allBbox,
+    nameField,
     cities: cities.length,
     polygons: polyFeatures.length,
     acsMatched: cities.filter((c) => c.hasAcs).length,

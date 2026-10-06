@@ -18,7 +18,7 @@ const NODATA = dark ? '#2b3a35' : '#cbd3cf';
 const GOLD = dark ? '#e8b14a' : '#d99a2b';
 const OUTLINE = dark ? '#0d1714' : '#0f2e25';
 
-const state = { metric: 'pop', size: 'all', selected: null, tab: 'compare', metricsAvail: METRICS };
+const state = { metric: 'pop', size: 'all', selected: null, tab: 'compare', metricsAvail: METRICS, mapErrors: [], drawn: null };
 let map;
 let data;
 
@@ -44,14 +44,16 @@ async function init() {
 }
 
 function showFatal(err) {
-  console.error(err);
+  console.error(err, err.cause || '');
   const box = $('.loading-inner');
   box.className = 'loading-inner error';
-  box.innerHTML = `<h2>The map data didn't load</h2>
-    <p>${esc(err.message || err)}</p>
-    <p>If you opened <code>index.html</code> straight from your computer, browsers block the data requests.
-    Run a local server instead: <code>python3 -m http.server</code> and visit <code>http://localhost:8000</code>.</p>
-    <p>Otherwise the State of Oregon city limits service may be down. A saved copy at <code>data/city_limits.geojson</code> avoids that (see the README).</p>`;
+  const fromDisk = location.protocol === 'file:';
+  const help = fromDisk
+    ? `<p>This page was opened straight from a folder, and browsers block data requests from there. Run a local server instead:
+       <code>python3 -m http.server</code>, then visit <code>http://localhost:8000</code>.</p>`
+    : `<p>Fix: add a copy of the city limits to the site as <code>data/city_limits.geojson</code>
+       (download it from the Oregon GEOHub City Limits page; steps are in the README). The app then never needs the live service.</p>`;
+  box.innerHTML = `<h2>The map data didn't load</h2><p>${esc(err.message || err)}</p>${help}`;
 }
 
 // Put every metric on each polygon/point so MapLibre can color and filter by it.
@@ -90,6 +92,12 @@ function setupMap() {
   map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'bottom-right');
   map.touchZoomRotate.disableRotation();
 
+  map.on('error', (e) => {
+    const msg = e?.error?.message || String(e);
+    console.warn('[map]', e?.error || e);
+    if (state.mapErrors.length < 25) state.mapErrors.push(msg);
+  });
+
   let ready = false;
   const start = () => {
     if (ready) return;
@@ -99,6 +107,7 @@ function setupMap() {
     $('#loading').classList.add('done');
     document.body.classList.remove('is-loading');
     routeFromHash();
+    scheduleRenderCheck();
   };
   map.on('load', start);
 
@@ -115,6 +124,39 @@ function setupMap() {
   });
   map.on('mousemove', onHover);
   map.on('mouseout', () => ($('#tip').hidden = true));
+}
+
+// After the first render, confirm MapLibre actually drew city polygons; if not, say so on screen.
+function scheduleRenderCheck() {
+  let done = false;
+  const check = () => {
+    if (done) return;
+    done = true;
+    let n = 0;
+    try { n = map.querySourceFeatures('cities').length; } catch { n = 0; }
+    state.drawn = n;
+    if (n === 0 && data.polys.features.length) {
+      showDiag(`${data.polys.features.length} city boundaries were loaded, but none are showing on the map. Open “Data and sources” for details.`);
+    }
+  };
+  map.once('idle', () => setTimeout(check, 400));
+  setTimeout(check, 12000);
+}
+
+function showDiag(message) {
+  let el = $('#diag');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'diag';
+    el.className = 'diag';
+    el.setAttribute('role', 'alert');
+    document.body.appendChild(el);
+    el.addEventListener('click', (e) => {
+      if (e.target.closest('[data-diag-open]')) $('#data-btn').click();
+      if (e.target.closest('[data-diag-close]')) el.remove();
+    });
+  }
+  el.innerHTML = `<span>${esc(message)}</span> <button type="button" data-diag-open>Details</button> <button type="button" data-diag-close aria-label="Dismiss">Dismiss</button>`;
 }
 
 function featureAt(point, pad = 4) {
@@ -151,13 +193,17 @@ function colorScale(metric) {
 
 function addDataLayers() {
   if (map.getSource('cities')) return;
-  const firstSymbol = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+  // Draw above every opaque basemap layer (land, water, parks) but below place labels.
+  const styleLayers = map.getStyle().layers;
+  let lastArea = -1;
+  styleLayers.forEach((l, i) => { if (['fill', 'fill-extrusion', 'background', 'raster', 'hillshade'].includes(l.type)) lastArea = i; });
+  const firstSymbol = styleLayers.find((l, i) => i > lastArea && l.type === 'symbol')?.id;
   const scale = colorScale(metricById(state.metric));
 
   map.addSource('cities', { type: 'geojson', data: data.polys });
   map.addSource('city-pts', { type: 'geojson', data: data.points });
 
-  map.addLayer({ id: 'city-fill', type: 'fill', source: 'cities', paint: { 'fill-color': scale.expr, 'fill-opacity': 0.85 } }, firstSymbol);
+  map.addLayer({ id: 'city-fill', type: 'fill', source: 'cities', paint: { 'fill-color': scale.expr, 'fill-opacity': ['interpolate', ['linear'], ['zoom'], 5, 0.85, 11, 0.5] } }, firstSymbol);
   map.addLayer({
     id: 'city-line', type: 'line', source: 'cities',
     paint: { 'line-color': OUTLINE, 'line-opacity': 0.55, 'line-width': ['interpolate', ['linear'], ['zoom'], 5, 0.3, 10, 1.2] },
@@ -545,6 +591,10 @@ function setupAbout() {
   });
 }
 
+function bboxLooksOregon([w, so, e, n]) {
+  return w > -126 && e < -115 && so > 41 && n < 47;
+}
+
 function aboutHtml() {
   const st = data.status;
   const s = st.summary;
@@ -570,6 +620,15 @@ function aboutHtml() {
     <p>Income, housing, age and rent figures are survey estimates, so small cities can have wide margins of error. Where the margin is more than a quarter of the estimate, the city card says so.</p>
     <h3>Portland State University Population Research Center</h3>
     <p>${psu}</p>
+    <h3>Map diagnostics</h3>
+    <ul>
+      <li>Coordinate system of city limits file: <code>${esc(st.crs || 'unknown')}</code></li>
+      <li>Name column used: <code>${esc(s.nameField)}</code></li>
+      <li>Data extent (lon/lat): <code>${s.bbox.map((n) => n.toFixed(2)).join(', ')}</code> ${bboxLooksOregon(s.bbox) ? ok('inside Oregon') : warn('outside Oregon: the file may be in the wrong coordinate system')}</li>
+      <li>Map layers added: <code>${esc(['city-fill', 'city-line', 'city-pts'].filter((id) => map.getLayer(id)).join(', ') || 'none')}</code></li>
+      <li>City polygons drawn in the first view: ${state.drawn == null ? 'not checked yet' : state.drawn > 0 ? ok(String(state.drawn)) : warn('0')}</li>
+      ${state.mapErrors.length ? `<li>Messages from the map library:<ul>${[...new Set(state.mapErrors)].slice(0, 8).map((m) => `<li>${esc(m)}</li>`).join('')}</ul></li>` : ''}
+    </ul>
     <h3>How measures are calculated</h3>
     <ul>
       <li>Population density: population divided by square miles inside city limits (water included).</li>

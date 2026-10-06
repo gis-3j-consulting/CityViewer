@@ -6,28 +6,26 @@ Everything here is optional. The app looks for these files first and falls back 
 |---|---|---|
 | `city_limits.geojson` | `node scripts/build-data.mjs` | boundaries (skips the live ArcGIS query) |
 | `acs_places.json` | `node scripts/build-data.mjs` | Census figures (skips the live Census API) |
-| `psu_population.csv` | **you** | official population and population change |
+| `psu_population.csv` | `scripts/psu_xlsx_to_csv.py` | official population and population change (included: PSU 2025 certified estimates) |
 
 ## psu_population.csv
 
-Download from the PSU Population Research Center's *Population Estimate Reports* page
-(https://www.pdx.edu/population-research/population-estimate-reports), choose the CSV versions of
-*Certified Population Estimates* and/or the *Annual Population Report Tables*, and save as `data/psu_population.csv`.
+Included: PSU's **Vintage 2025 certified estimates** (certified December 15, 2025; Hillsboro and Mill City revised
+April 15, 2026), July 1 estimates for 2020 through 2025 for all 241 cities. "Population change" in the app is
+2020 to 2025.
 
-The loader is tolerant. It needs:
+To refresh it when PSU publishes new numbers, download the workbook from the *Population Estimate Reports* page
+(https://www.pdx.edu/population-research/population-estimate-reports) and run:
 
-- one column with the city name
-- one column per year, with the year in the header (`2020`, `July 1, 2025`, `Census 2020`, `2025 certified` all work)
-- numbers may contain commas
+```bash
+pip install openpyxl
+python3 scripts/psu_xlsx_to_csv.py path/to/Certified_Population_Estimates.xlsx
+```
 
-It skips title rows, county rows, "Oregon", "Total" and "Unincorporated" rows, strips footnote markers like `*`,
-and when a city appears more than once (cities that span counties) it keeps the larger row.
-Columns that mention change, percent or growth are ignored.
+That rewrites `data/psu_population.csv`. You can also supply any CSV of your own: one column of city names, one column
+per year with the year in the header (`2020`, `July 1, 2025` and `Census 2020` all work). The loader skips title,
+county, "Oregon", "Total" and "Unincorporated" rows, strips footnote markers, keeps the larger row when a city appears
+twice, and ignores columns that mention change, percent or growth. The first and last year columns drive the change figure.
 
-**Population change** is calculated from the first to the last year column, so include at least two years
-(for example 2020 and 2025) to turn on the growth layer, the "since 2020" badge and the trend chart.
-If the PSU workbook splits years across several sheets or tables, merge them into one sheet with a city column and
-year columns first. `psu_population.EXAMPLE.csv` shows the simplest layout.
-
-After adding the file, open the app and check **Data and sources**: it reports rows read, years found, and how many
+After changing the file, open the app and check **Data and sources**: it reports rows read, years found and how many
 cities matched.

@@ -1,7 +1,7 @@
 // Offline sanity tests for the pure data logic (no network, no browser).  Run: node scripts/test.mjs
 import assert from 'node:assert/strict';
 import {
-  normName, slug, prettyName, parseCensusPlaceName, parseCsv, parsePsuCsv,
+  ensureWgs84, normName, slug, prettyName, parseCensusPlaceName, parseCsv, parsePsuCsv,
   buildAcsUrls, mergeAcsResponses, deriveAcs, buildCities, ACS_VAR_GROUPS,
 } from '../js/data.js';
 import { quantileBreaks, computeRanks, findPeers, funFacts, METRICS, fmt } from '../js/stats.js';
@@ -231,6 +231,31 @@ t('stats: breaks, ranks, peers, facts, formatting', () => {
   }
   assert.match(lineChart([{ year: 2020, value: 10 }, { year: 2021, value: 12 }, { year: 2025, value: 15 }]), /<svg/);
   assert.match(barRows([{ label: 'A', value: 50 }, { label: 'B', value: null }]), /bar-row/);
+});
+
+t('buildCities tolerates a downloaded file with different field names', () => {
+  const gj = { type: 'FeatureCollection', features: geojson.features.map((f) => ({ ...f, properties: { City_Name: f.properties.CITY_NAME, ACRES: f.properties.acres } })) };
+  const out = buildCities({ geojson: gj, acs: { year: 2024, places: acsPlaces }, psu: null });
+  assert.equal(out.cities.length, 3);
+  assert.equal(out.byKey.get('bend').acres, 20100);
+});
+
+t('ensureWgs84 converts Oregon Lambert (ft) and web mercator, leaves lon/lat alone', () => {
+  const pt = (c) => ({ type: 'FeatureCollection', features: [{ type: 'Feature', properties: {}, geometry: { type: 'Polygon', coordinates: [[c, c, c, c]] } }] });
+  const near = (a, b) => assert.ok(Math.abs(a[0] - b[0]) < 1e-5 && Math.abs(a[1] - b[1]) < 1e-5, `${a} vs ${b}`);
+  // reference values from pyproj
+  const lcc = { Portland: [[753954.287, 1379889.606], [-122.6784, 45.5152]], Bend: [[1098057.848, 842423.796], [-121.3153, 44.0582]],
+    Ontario: [[2242263.326, 849878.787], [-116.9626, 44.0266]], Brookings: [[284476.718, 134025.363], [-124.2840, 42.0526]], Astoria: [[468521.573, 1634948.563], [-123.8313, 46.1879]] };
+  for (const [name, [proj, ll]] of Object.entries(lcc)) {
+    const r = ensureWgs84(pt(proj));
+    assert.match(r.crs, /2992/, name);
+    near(r.geojson.features[0].geometry.coordinates[0][0], ll);
+  }
+  const m = ensureWgs84(pt([-13656497.019, 5702997.146]));
+  assert.match(m.crs, /3857/);
+  near(m.geojson.features[0].geometry.coordinates[0][0], [-122.6784, 45.5152]);
+  assert.equal(ensureWgs84(pt([-122.6, 45.5])).crs, 'EPSG:4326');
+  assert.throws(() => ensureWgs84(pt([50, 4000])), /coordinate system/);
 });
 
 console.log(`\n${n} test groups passed`);

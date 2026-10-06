@@ -16,7 +16,7 @@ export const CONFIG = {
   cityLimits: {
     // ODOT/State of Oregon "City Limits" feature service (layer 0).
     queryUrl: 'https://maps.dsl.state.or.us/arcgis/rest/services/CityLimits/FeatureServer/0/query',
-    nameField: 'CITY_NAME',
+    nameField: 'CITYNAME',
     acresField: 'acres',
     // Server-side generalization, in degrees (~0.0004 deg is about 40 m).
     // Keeps the statewide download small. Lower = more detail, bigger file.

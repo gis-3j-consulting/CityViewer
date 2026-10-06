@@ -328,3 +328,12 @@ body.panel-hidden .maplibregl-ctrl-bottom-right { right: 8px; }
   .spinner { animation-duration: 3s; }
   .loading { transition: none; }
 }
+
+/* on-screen warning when the map could not draw the boundaries */
+.diag {
+  position: fixed; left: 50%; top: 12px; transform: translateX(-50%); z-index: 40;
+  max-width: min(640px, calc(100vw - 24px)); padding: 10px 14px;
+  background: var(--gold-soft); color: var(--gold-ink); border: 1.5px solid var(--gold); border-radius: 12px; box-shadow: var(--shadow); font-size: 14px;
+}
+.diag button { margin-left: 6px; padding: 3px 9px; border: 1.5px solid currentColor; border-radius: 8px; background: transparent; color: inherit; font-size: 13px; }
+@media (max-width: 720px) { .diag { top: auto; bottom: 12px; } }
