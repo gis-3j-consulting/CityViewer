@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Oregon Cities Explorer</title>
+  <meta name="description" content="Click any Oregon city to see its population, housing, income and more.">
+  <meta name="color-scheme" content="light dark">
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500..800&family=Public+Sans:wght@400;500;600&display=swap">
+
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.css">
+  <script src="https://cdn.jsdelivr.net/npm/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
+
+  <link rel="icon" type="image/png" href="img/favicon.png">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body class="is-loading">
+  <div id="map" aria-label="Map of Oregon cities"></div>
+
+  <section class="controls" aria-label="Find a city and choose what the map shows">
+    <header class="brand">
+      <img class="brand-logo" src="img/3j-logo.png" width="711" height="500" alt="3J: Civil Engineering, Water Resources, Community Planning">
+      <h1 class="wordmark">Oregon Cities Explorer</h1>
+    </header>
+
+    <div class="search">
+      <label class="sr-only" for="search-input">Find your city</label>
+      <input id="search-input" type="search" placeholder="Find your city" autocomplete="off" spellcheck="false"
+             role="combobox" aria-expanded="false" aria-controls="search-results" aria-autocomplete="list">
+      <ul id="search-results" class="search-results" role="listbox" hidden></ul>
+    </div>
+
+    <div class="field">
+      <label for="metric-select">Color the map by</label>
+      <select id="metric-select"></select>
+    </div>
+
+    <div class="field size-field">
+      <span id="size-label">City size</span>
+      <div class="chips" role="group" aria-labelledby="size-label" id="size-chips">
+        <button type="button" data-size="all" aria-pressed="true">All</button>
+        <button type="button" data-size="small" aria-pressed="false">Under 2,500</button>
+        <button type="button" data-size="mid" aria-pressed="false">2,500 to 10,000</button>
+        <button type="button" data-size="large" aria-pressed="false">10,000+</button>
+      </div>
+    </div>
+  </section>
+
+  <div class="legend" id="legend" aria-live="polite"></div>
+
+  <aside id="panel" class="panel is-empty" aria-label="City details">
+    <div id="panel-body"></div>
+  </aside>
+
+  <button type="button" class="data-btn" id="data-btn">Data and sources</button>
+  <div class="tip" id="tip" hidden></div>
+
+  <dialog id="about" aria-labelledby="about-title">
+    <form method="dialog" class="about-close"><button aria-label="Close">Close</button></form>
+    <div id="about-body"></div>
+  </dialog>
+
+  <div class="loading" id="loading" role="status">
+    <div class="loading-inner">
+      <div class="spinner" aria-hidden="true"></div>
+      <p id="loading-text">Loading</p>
+    </div>
+  </div>
+
+  <noscript><p class="noscript">This map needs JavaScript to run.</p></noscript>
+
+  <script type="module" src="js/main.js"></script>
+</body>
+</html>

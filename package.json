@@ -1,0 +1,12 @@
+{
+  "name": "oregon-cities-explorer",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive map of Oregon cities: population, housing and income at a glance.",
+  "scripts": {
+    "start": "python3 -m http.server 8000",
+    "build-data": "node scripts/build-data.mjs",
+    "test": "node scripts/test.mjs"
+  }
+}
